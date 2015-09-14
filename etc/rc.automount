@@ -1,0 +1,63 @@
+#! /bin/sh
+
+automounter=/opt/pidp8/bin/automounter
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+umask 022
+. /opt/pidp8/etc/init-functions
+
+test -x $automounter || ( echo "automounter not found" && exit 0 )
+
+#
+is_running() {
+	procs=`ps aux | grep automounter | grep -v grep | wc -l`
+	return $procs
+}
+
+do_start() {
+	is_running
+	if [ $? -gt 0 ]; then
+	    echo "Hacky automounter is already running, not starting again." >&2
+	    exit 0
+	fi
+
+    $automounter &> /var/log/automount.log &
+	status=$?
+	return $status
+}
+
+do_stop() {
+	is_running
+	if [ $? -eq 0 ]; then
+	    echo "Hacky automounter is already stopped." >&2
+	    status=1
+	else
+	    log_daemon_msg "Stopping the hacky automounter" "automounter"
+        killall "automounter"
+	fi
+	return $status
+}
+
+case "$1" in
+  start)
+	do_start
+	;;
+
+  stop)
+	do_stop
+	;;
+
+  restart)
+	do_stop
+	do_start
+	;;
+
+  status)
+    ps aux | grep automounter | grep -v grep
+	;;
+
+  *)
+	log_action_msg "Usage: /etc/init.d/automount {start|stop|restart|status}" || true
+	exit 1
+esac
+
+exit 0

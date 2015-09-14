@@ -1,0 +1,11 @@
+while [ 1 ]
+do
+    fdisk -l /dev/sda |  awk '/^\/dev/ {x=$1; gsub("/dev/","",$1); system ("mkdir /mnt/" $1) ; system ("mount " x " /mnt/" $1)}'
+    if [ !$ ]
+    then
+        echo yay
+    else
+        echo nay
+    fi
+    sleep 5
+done
