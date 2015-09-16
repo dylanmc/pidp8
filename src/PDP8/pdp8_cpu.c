@@ -445,8 +445,8 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
             printf("\r\nShutdown\r\n\r\n");
             reason = STOP_HALT;
             awfulHackFlag = 8;  // this triggers an exit command after leaving the simulator run. 
-            if(spawn_cmd ((int32) 0, " shutdown -h -t 1 now")!=SCPE_OK) // no sudo in buildroot env
-                printf("\r\n\n\nshutdown failed\r\n\n");
+            if(spawn_cmd ((int32) 0, " halt")!=SCPE_OK) // no sudo in buildroot env
+                printf("\r\n\n\nshutdown (halt) failed\r\n\n");
         }
         // 4. Scan for reboot command (Sing_Step + Sing_Inst + Cont)
 
@@ -455,7 +455,7 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
                 printf("\r\nReboot\r\n\r\n");
                 reason = STOP_HALT;
                 awfulHackFlag = 8;      // this triggers an exit command after leaving the simulator run. 
-                if(spawn_cmd ((int32) 0, " shutdown -r -t 1 now")!=SCPE_OK) {// no sudo in buildroot env
+                if(spawn_cmd ((int32) 0, " reboot")!=SCPE_OK) {// no sudo in buildroot env
                         printf("\r\n\n\nreboot failed\r\n\n");
                 }
         }
