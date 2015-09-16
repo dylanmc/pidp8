@@ -1,0 +1,21 @@
+#!/bin/bash
+
+if [ -b /dev/sda ]
+then
+        echo yes sda device
+        mount | grep "/dev/mmc"
+        if (( $? == 0 )) # 0 -> yes, a match
+        then
+                echo sda device mounted
+        else
+                echo sda device not mounted
+        fi
+else
+        echo no sda
+        if [ -f /mnt/sda1 ]
+        then
+                echo cleaning up stale mountpoint
+        else
+                echo nothing to do
+        fi
+fi

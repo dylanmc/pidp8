@@ -1,0 +1,17 @@
+for mountpoint in /media/usb*
+do
+    umount ${mountpoint}
+    if [ !$ ]
+    then
+        echo "successfully unmounted ${mountpoint}"
+    else
+        echo "unable to unmount ${mountpoint}"
+    fi
+    rm -f ${mountpoint}
+    if [ !$ ]
+    then
+        echo "successfully deleted ${mountpoint}"
+    else
+        echo "unable to delete ${mountpoint}"
+    fi
+done
