@@ -11,7 +11,7 @@
 
 
 // TO DO: define SERIALSETUP to use PiDPs wired for serial port
-//#define SERIALSETUP
+#define SERIALSETUP
 
 
 #include <time.h>
