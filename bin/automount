@@ -1,6 +1,6 @@
 if [ -b /dev/sda ]
 then
-    fdisk -l /dev/sda |  awk '/^\/dev/ {x=$1; gsub("/dev/sda","",$1); system ("mkdir /media/usb" $1) ; system ("mount " x " /media/usb" $1)}'
+    fdisk -l /dev/sda |  awk '/^\/dev/ {x=$1; gsub("/dev/sda","",$1); system ("mkdir -p /media/usb" $1) ; system ("mount " x " /media/usb" $1)}'
 else
     echo "no device in /dev/sda"
 fi

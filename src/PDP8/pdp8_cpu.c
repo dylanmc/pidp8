@@ -25,6 +25,8 @@
 
    cpu          central processor
 
+   18-Sep-15    DM      Added PiDP/8 support
+   15-Jun-15    OV      Added PiDP/8 support
    28-Apr-07    RMS     Removed clock initialization
    30-Oct-06    RMS     Added idle and infinite loop detection
    30-Sep-06    RMS     Fixed SC value after DVI overflow (Don North)
@@ -435,7 +437,7 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
             sprintf(sScript,"/opt/pidp8/bootscripts/%d.script", swDevice);  // make filename
             printf("\r\n\nRebooting %s\r\n\n", sScript);
             reason = STOP_HALT;
-            awfulHackFlag = swDevice;   // this triggers a do command after leaving the simulator run. 
+            awfulHackFlag = swDevice;   // this triggers a do command after leaving the simulator run
         }
 
         // 3. Scan for shutdown command (Sing_Step + Sing_inst + Start)
@@ -448,6 +450,7 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
             if(spawn_cmd ((int32) 0, " halt")!=SCPE_OK) // no sudo in buildroot env
                 printf("\r\n\n\nshutdown (halt) failed\r\n\n");
         }
+
         // 4. Scan for reboot command (Sing_Step + Sing_Inst + Cont)
 
         if (((switchstatus[2] & 0x0080)==0) && ((switchstatus[2] & 0x0010)==0))
@@ -460,6 +463,28 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
                 }
         }
 
+
+        // 5. Scan for mount command (Sing_Step + Sing_Inst + Load Add)
+
+        if ((switchstatus[2] & 0x0410)==0)
+        {
+                printf("\r\nMount\r\n\r\n");
+                if(spawn_cmd ((int32) 0, " /opt/pidp8/bin/automount")!=SCPE_OK) {// no sudo in buildroot env
+                        printf("\r\n\n\nmount USB drive failed\r\n\n");
+                }
+        }
+
+        // 6. Scan for unmount command (Sing_Step + Sing_Inst + Deposit)
+
+        if ((switchstatus[2] & 0x0210)==0)
+        {
+                printf("\r\nUnmount\r\n\r\n");
+                if(spawn_cmd ((int32) 0, " /opt/pidp8/bin/unmount")!=SCPE_OK) {// no sudo in buildroot env
+                        printf("\r\n\n\nunmount failed\r\n\n");
+                }
+        }
+
+        // printf ("\r\nSwitches: 0x%x\r\n", switchstatus[2]);
 
     }
 }
@@ -1954,9 +1979,9 @@ int mountUSBStickFile(int devNo, char *devCode, char *sPath)
     // if mounting another image to a device, clear the current file from the mountlist:
     mountedFiles[devNo][0]=0x00;
 
-    for (i=0;i<8;i++)               // search all 8 USB mount points
+    for (i=1;i<=8;i++)               // search all 8 USB mount points
     {
-        sprintf(sUSBPath,"/media/usb%d",i); // usb sticks are numbered 0..7
+        sprintf(sUSBPath,"/media/usb%d",i); // usb sticks are numbered 1..8
 //printf("1- %s\r\n", sUSBPath);
         pDir = opendir(sUSBPath);
         if (pDir==NULL)             // that means usbmount not installed?

@@ -7,7 +7,7 @@ do
     else
         echo "unable to unmount ${mountpoint}"
     fi
-    rm -f ${mountpoint}
+    rmdir ${mountpoint}
     if [ !$ ]
     then
         echo "successfully deleted ${mountpoint}"
