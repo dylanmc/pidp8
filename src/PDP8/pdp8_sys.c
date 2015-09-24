@@ -1,6 +1,6 @@
 /* pdp8_sys.c: PDP-8 simulator interface
 
-   Copyright (c) 1993-2011, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -23,6 +23,7 @@
    used in advertising or otherwise to promote the sale, use or other dealings
    in this Software without prior written authorization from Robert M Supnik.
 
+   17-Sep-13    RMS     Fixed recognition of initial field change (Dave Gesswein)
    24-Mar-09    RMS     Added link to FPP
    24-Jun-08    RMS     Fixed bug in new rim loader (Don North)
    24-May-08    RMS     Fixed signed/unsigned declaration inconsistency
@@ -65,7 +66,6 @@ extern DEVICE mt_dev, ct_dev;
 extern DEVICE ttix_dev, ttox_dev;
 extern REG cpu_reg[];
 extern uint16 M[];
-extern int32 sim_switches;
 
 t_stat fprint_sym_fpp (FILE *of, t_value *val);
 t_stat parse_sym_fpp (char *cptr, t_value *val);
@@ -119,6 +119,7 @@ const char *sim_stop_messages[] = {
     "Unimplemented instruction",
     "HALT instruction",
     "Breakpoint",
+    "Opcode Breakpoint",
     "Non-standard device number",
     "DECtape off reel",
     "Infinite loop"
@@ -190,34 +191,49 @@ t_stat sim_load_bin (FILE *fi)
 {
 int32 hi, lo, wd, csum, t;
 uint32 field, newf, origin;
+int32 sections_read = 0;
 
-do {                                                    /* skip leader */
-    if ((hi = sim_bin_getc (fi, &newf)) == EOF)
-        return SCPE_FMT;
-    } while ((hi == 0) || (hi >= 0200));
-csum = origin = field = newf = 0;                       /* init */
-for (;;) {                                              /* data blocks */
-    if ((lo = sim_bin_getc (fi, &newf)) == EOF)         /* low char */
-        return SCPE_FMT;
-    wd = (hi << 6) | lo;                                /* form word */
-    t = hi;                                             /* save for csum */
-    if ((hi = sim_bin_getc (fi, &newf)) == EOF)         /* next char */
-        return SCPE_FMT;
-    if (hi == 0200) {                                   /* end of tape? */
-        if ((csum - wd) & 07777)                        /* valid csum? */
-            return SCPE_CSUM;
-        return SCPE_OK;
+for (;;) {
+    csum = origin = field = newf = 0;                   /* init */
+    do {                                                /* skip leader */
+        if ((hi = sim_bin_getc (fi, &newf)) == EOF) {
+            if (sections_read != 0) {
+                sim_printf ("%d sections sucessfully read\n\r", sections_read);
+                return SCPE_OK;
+                } 
+            else
+                return SCPE_FMT;
+            }
+        } while ((hi == 0) || (hi >= 0200));
+    for (;;) {                                          /* data blocks */
+        if ((lo = sim_bin_getc (fi, &newf)) == EOF)     /* low char */
+            return SCPE_FMT;
+        wd = (hi << 6) | lo;                            /* form word */
+        t = hi;                                         /* save for csum */
+        if ((hi = sim_bin_getc (fi, &newf)) == EOF)     /* next char */
+            return SCPE_FMT;
+        if (hi == 0200) {                               /* end of tape? */
+            if ((csum - wd) & 07777) {                  /* valid csum? */
+                if (sections_read != 0)
+                    sim_printf ("%d sections sucessfully read\n\r", sections_read);
+                return SCPE_CSUM;
+                }
+            if (!(sim_switches & SWMASK ('A')))        /* Load all sections? */
+                return SCPE_OK;
+            sections_read++;
+            break;
+            }
+        csum = csum + t + lo;                           /* add to csum */
+        if (wd > 07777)                                 /* chan 7 set? */
+            origin = wd & 07777;                        /* new origin */
+        else {                                          /* no, data */
+            if ((field | origin) >= MEMSIZE) 
+                return SCPE_NXM;
+            M[field | origin] = wd;
+            origin = (origin + 1) & 07777;
+            }
+        field = newf;                                   /* update field */
         }
-    csum = csum + t + lo;                               /* add to csum */
-    if (wd > 07777)                                     /* chan 7 set? */
-        origin = wd & 07777;                            /* new origin */
-    else {                                              /* no, data */
-        if ((field | origin) >= MEMSIZE) 
-            return SCPE_NXM;
-        M[field | origin] = wd;
-        origin = (origin + 1) & 07777;
-        }
-    field = newf;                                       /* update field */
     }
 return SCPE_IERR;
 }
@@ -507,6 +523,11 @@ static const int32 fop_val[] = {
    Outputs:
         status  =       space needed
 */
+
+/* Use scp.c provided fprintf function */
+#define fprintf Fprintf
+#define fputs(_s,f) Fprintf(f,"%s",_s)
+#define fputc(_c,f) Fprintf(f,"%c",_c)
 
 int32 fprint_opr (FILE *of, int32 inst, int32 class, int32 sp)
 {

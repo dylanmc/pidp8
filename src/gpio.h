@@ -1,3 +1,4 @@
+#ifdef PIDP8
 #include <stdio.h>
  
 #include <sys/mman.h>
@@ -22,4 +23,4 @@ struct bcm2835_peripheral {
 };
  
 //struct bcm2835_peripheral gpio = {GPIO_BASE};
- 
+#endif

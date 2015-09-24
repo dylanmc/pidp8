@@ -1,6 +1,6 @@
 /* pdp8_df.c: DF32 fixed head disk simulator
 
-   Copyright (c) 1993-2011, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,8 @@
 
    df           DF32 fixed head disk
 
+   17-Sep-13    RMS     Changed to use central set_bootpc routine
+   03-Sep-13    RMS     Added explicit void * cast
    15-May-06    RMS     Fixed bug in autosize attach (Dave Gesswein)
    07-Jan-06    RMS     Fixed unaligned register access bug (Doug Carman)
    04-Jan-04    RMS     Changed sim_fsize calling sequence
@@ -129,7 +131,7 @@ DIB df_dib = { DEV_DF, 3, { &df60, &df61, &df62 } };
 
 UNIT df_unit = {
     UDATA (&df_svc, UNIT_FIX+UNIT_ATTABLE+UNIT_BUFABLE+UNIT_MUSTBUF,
-		   DF_DKSIZE)
+           DF_DKSIZE)
     };
 
 REG df_reg[] = {
@@ -249,7 +251,7 @@ t_stat df_svc (UNIT *uptr)
 {
 int32 pa, t, mex;
 uint32 da;
-int16 *fbuf = uptr->filebuf;
+int16 *fbuf = (int16 *) uptr->filebuf;
 
 UPDATE_PCELL;                                           /* update photocell */
 if ((uptr->flags & UNIT_BUF) == 0) {                    /* not buf? abort */
@@ -264,7 +266,7 @@ do {
     if (da >= uptr->capac) {                            /* nx disk addr? */
         df_sta = df_sta | DFS_NXD;
         break;
-		}
+        }
     M[DF_WC] = (M[DF_WC] + 1) & 07777;                  /* incr word count */
     M[DF_MA] = (M[DF_MA] + 1) & 07777;                  /* incr mem addr */
     pa = mex | M[DF_MA];                                /* add extension */
@@ -276,7 +278,7 @@ do {
         if ((df_wlk >> t) & 1)                          /* locked? set err */
             df_sta = df_sta | DFS_WLS;
         else {                                          /* not locked */
-            fbuf[da] = M[pa];							/* write word */
+            fbuf[da] = M[pa];                           /* write word */
             if (da >= uptr->hwmark) uptr->hwmark = da + 1;
             }
         }
@@ -334,18 +336,17 @@ static const uint16 dm4_rom[] = {
 
 t_stat df_boot (int32 unitno, DEVICE *dptr)
 {
-int32 i;
-extern int32 sim_switches, saved_PC;
+size_t i;
 
 if (sim_switches & SWMASK ('D')) {
     for (i = 0; i < DM4_LEN; i = i + 2)
         M[dm4_rom[i]] = dm4_rom[i + 1];
-    saved_PC = DM4_START;
+    cpu_set_bootpc (DM4_START);
     }
 else {
     for (i = 0; i < OS8_LEN; i++)
          M[OS8_START + i] = os8_rom[i];
-    saved_PC = OS8_START;
+    cpu_set_bootpc (OS8_START);
     }
 return SCPE_OK;
 }

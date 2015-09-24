@@ -1,6 +1,6 @@
 /* pdp8_rf.c: RF08 fixed head disk simulator
 
-   Copyright (c) 1993-2011, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,8 @@
 
    rf           RF08 fixed head disk
 
+   17-Sep-13    RMS     Changed to use central set_bootpc routine
+   03-Sep-13    RMS     Added explicit void * cast
    15-May-06    RMS     Fixed bug in autosize attach (Dave Gesswein)
    07-Jan-06    RMS     Fixed unaligned register access bug (Doug Carman)
    04-Jan-04    RMS     Changed sim_fsize calling sequence
@@ -302,7 +304,7 @@ return AC;
 t_stat rf_svc (UNIT *uptr)
 {
 int32 pa, t, mex;
-int16 *fbuf = uptr->filebuf;
+int16 *fbuf = (int16 *) uptr->filebuf;
 
 UPDATE_PCELL;                                           /* update photocell */
 if ((uptr->flags & UNIT_BUF) == 0) {                    /* not buf? abort */
@@ -330,7 +332,7 @@ do {
         if ((rf_wlk >> t) & 1)                          /* write locked? */
             rf_sta = rf_sta | RFS_WLS;
         else {                                          /* not locked */
-            fbuf[rf_da] = M[pa];						/* write word */
+            fbuf[rf_da] = M[pa];                        /* write word */
             if (((uint32) rf_da) >= uptr->hwmark)
                 uptr->hwmark = rf_da + 1;
             }
@@ -398,20 +400,19 @@ static const uint16 dm4_rom[] = {
 
 t_stat rf_boot (int32 unitno, DEVICE *dptr)
 {
-int32 i;
-extern int32 sim_switches, saved_PC;
+size_t i;
 
 if (rf_dib.dev != DEV_RF)                               /* only std devno */
     return STOP_NOTSTD;
 if (sim_switches & SWMASK ('D')) {
     for (i = 0; i < DM4_LEN; i = i + 2)
         M[dm4_rom[i]] = dm4_rom[i + 1];
-    saved_PC = DM4_START;
+    cpu_set_bootpc (DM4_START);
     }
 else {
     for (i = 0; i < OS8_LEN; i++)
         M[OS8_START + i] = os8_rom[i];
-    saved_PC = OS8_START;
+    cpu_set_bootpc (OS8_START);
     }
 return SCPE_OK;
 }

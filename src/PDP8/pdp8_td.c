@@ -1,6 +1,6 @@
 /* pdp8_td.c: PDP-8 simple DECtape controller (TD8E) simulator
 
-   Copyright (c) 1993-2011, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -28,8 +28,9 @@
 
    td           TD8E/TU56 DECtape
 
+   17-Sep-13    RMS     Changed to use central set_bootpc routine
    23-Mar-11    RMS     Fixed SDLC to clear AC (from Dave Gesswein)
-   23-Jun-06	RMS     Fixed switch conflict in ATTACH
+   23-Jun-06    RMS     Fixed switch conflict in ATTACH
    16-Aug-05    RMS     Fixed C++ declaration and cast problems
    09-Jan-04    RMS     Changed sim_fsize calling sequence, added STOP_OFFR
 
@@ -89,6 +90,7 @@
 #define UNIT_11FMT      (1 << UNIT_V_11FMT)
 #define STATE           u3                              /* unit state */
 #define LASTT           u4                              /* last time update */
+#define WRITTEN         u5                              /* device buffer is dirty and needs flushing */
 #define UNIT_WPRT       (UNIT_WLK | UNIT_RO)            /* write protect */
 
 /* System independent DECtape constants */
@@ -100,7 +102,7 @@
 
 /* 16b, 18b, 36b DECtape constants */
 
-#define D18_WSIZE       6                               /* word sizein lines */
+#define D18_WSIZE       6                               /* word size in lines */
 #define D18_BSIZE       384                             /* block size in 12b */
 #define D18_TSIZE       578                             /* tape size */
 #define D18_LPERB       (DT_HTLIN + (D18_BSIZE * DT_WSIZE) + DT_HTLIN)
@@ -196,6 +198,7 @@ int32 td77 (int32 IR, int32 AC);
 t_stat td_svc (UNIT *uptr);
 t_stat td_reset (DEVICE *dptr);
 t_stat td_attach (UNIT *uptr, char *cptr);
+void td_flush (UNIT *uptr);
 t_stat td_detach (UNIT *uptr);
 t_stat td_boot (int32 unitno, DEVICE *dptr);
 t_bool td_newsa (int32 newf);
@@ -208,8 +211,6 @@ int32 td_set_mtk (int32 code, int32 u, int32 k);
 t_stat td_show_pos (FILE *st, UNIT *uptr, int32 val, void *desc);
 
 extern uint16 M[];
-extern int32 sim_switches;
-extern int32 sim_is_running;
 
 /* TD data structures
 
@@ -374,16 +375,16 @@ if (new_mving && !prev_mving) {                         /* start from stop? */
 
 if ((prev_mving && !new_mving) ||                       /* stop from moving? */
     (prev_dir != new_dir)) {                            /* dir chg while moving? */
-	if (uptr->STATE >= STA_ACC) {						/* not stopping? */
-		if (td_setpos (uptr))				            /* update pos */
+    if (uptr->STATE >= STA_ACC) {                       /* not stopping? */
+        if (td_setpos (uptr))                           /* update pos */
             return TRUE;
-		sim_cancel (uptr);								/* stop current */
-		sim_activate (uptr, td_dctime);					/* schedule decel */
-		uptr->STATE = STA_DEC | prev_dir;				/* set status */
-		td_slf = td_qlf = td_qlctr = 0;					/* clear state */
-		}
-	return FALSE;
-	}
+        sim_cancel (uptr);                              /* stop current */
+        sim_activate (uptr, td_dctime);                 /* schedule decel */
+        uptr->STATE = STA_DEC | prev_dir;               /* set status */
+        td_slf = td_qlf = td_qlctr = 0;                 /* clear state */
+        }
+    return FALSE;
+    }
 
 return FALSE;   
 }
@@ -444,10 +445,10 @@ if (uptr->STATE & STA_DIR)                              /* update pos */
 else uptr->pos = uptr->pos + delta;
 if (((int32) uptr->pos < 0) ||
     ((int32) uptr->pos > (DTU_FWDEZ (uptr) + DT_EZLIN))) {
-	detach_unit (uptr);									/* off reel */
-	sim_cancel (uptr);									/* no timing pulses */
-	return TRUE;
-	}
+    detach_unit (uptr);                                 /* off reel */
+    sim_cancel (uptr);                                  /* no timing pulses */
+    return TRUE;
+    }
 return FALSE;
 }
 
@@ -660,6 +661,7 @@ int32 nibp = 3 * (DT_WSIZE - 1 - (line % DT_WSIZE));    /* nibble pos */
 
 ba = ba + (line / DT_WSIZE);                            /* block addr */
 fbuf[ba] = (fbuf[ba] & ~(07 << nibp)) | (dat << nibp);  /* upd data nibble */
+uptr->WRITTEN = TRUE;
 if (ba >= uptr->hwmark)                                 /* upd length */
     uptr->hwmark = ba + 1;
 return;
@@ -742,8 +744,7 @@ static const uint16 boot_rom[] = {
 
 t_stat td_boot (int32 unitno, DEVICE *dptr)
 {
-int32 i;
-extern int32 saved_PC;
+size_t i;
 
 if (unitno)
     return SCPE_ARG;                                    /* only unit 0 */
@@ -752,7 +753,7 @@ if (td_dib.dev != DEV_TD8E)
 td_unit[unitno].pos = DT_EZLIN;
 for (i = 0; i < BOOT_LEN; i++)
     M[BOOT_START + i] = boot_rom[i];
-saved_PC = BOOT_START;
+cpu_set_bootpc (BOOT_START);
 return SCPE_OK;
 }
 
@@ -798,13 +799,14 @@ if (uptr->filebuf == NULL) {                            /* can't alloc? */
     return SCPE_MEM;
     }
 fbuf = (uint16 *) uptr->filebuf;                        /* file buffer */
-printf ("%s%d: ", sim_dname (&td_dev), u);
+sim_printf ("%s%d: ", sim_dname (&td_dev), u);
 if (uptr->flags & UNIT_8FMT)
-    printf ("12b format");
+    sim_printf ("12b format");
 else if (uptr->flags & UNIT_11FMT)
-    printf ("16b format");
-else printf ("18b/36b format");
-printf (", buffering file in memory\n");
+    sim_printf ("16b format");
+else sim_printf ("18b/36b format");
+sim_printf (", buffering file in memory\n");
+uptr->io_flush = td_flush;
 if (uptr->flags & UNIT_8FMT)                            /* 12b? */
     uptr->hwmark = fxread (uptr->filebuf, sizeof (uint16),
             uptr->capac, uptr->fileref);
@@ -858,20 +860,16 @@ return SCPE_OK;
    Deallocate buffer
 */
 
-t_stat td_detach (UNIT* uptr)
+void td_flush (UNIT* uptr)
 {
 uint32 pdp18b[D18_NBSIZE];
 uint16 pdp11b[D18_NBSIZE], *fbuf;
 int32 i, k;
-int32 u = uptr - td_dev.units;
 uint32 ba;
 
-if (!(uptr->flags & UNIT_ATT))
-    return SCPE_OK;
-fbuf = (uint16 *) uptr->filebuf;                        /* file buffer */
-if (uptr->hwmark && ((uptr->flags & UNIT_RO)== 0)) {    /* any data? */
-    printf ("%s%d: writing buffer to file\n", sim_dname (&td_dev), u);
+if (uptr->WRITTEN && uptr->hwmark && ((uptr->flags & UNIT_RO)== 0)) {    /* any data? */
     rewind (uptr->fileref);                             /* start of file */
+    fbuf = (uint16 *) uptr->filebuf;                    /* file buffer */
     if (uptr->flags & UNIT_8FMT)                        /* PDP8? */
         fxwrite (uptr->filebuf, sizeof (uint16),        /* write file */
             uptr->hwmark, uptr->fileref);
@@ -894,7 +892,21 @@ if (uptr->hwmark && ((uptr->flags & UNIT_RO)== 0)) {    /* any data? */
                 D18_NBSIZE, uptr->fileref);
             }                                           /* end loop buf */
         }                                               /* end else */
-    if (ferror (uptr->fileref)) perror ("I/O error");
+    if (ferror (uptr->fileref))
+        sim_perror ("I/O error");
+    }
+uptr->WRITTEN = FALSE;                                  /* no longer dirty */
+}
+
+t_stat td_detach (UNIT* uptr)
+{
+int u = (int)(uptr - td_dev.units);
+
+if (!(uptr->flags & UNIT_ATT))
+    return SCPE_OK;
+if (uptr->hwmark && ((uptr->flags & UNIT_RO)== 0)) {    /* any data? */
+    sim_printf ("%s%d: writing buffer to file\n", sim_dname (&td_dev), u);
+    td_flush (uptr);
     }                                                   /* end if hwmark */
 free (uptr->filebuf);                                   /* release buf */
 uptr->flags = uptr->flags & ~UNIT_BUF;                  /* clear buf flag */
@@ -912,7 +924,8 @@ int32 td_set_mtk (int32 code, int32 u, int32 k)
 {
 int32 i;
 
-for (i = 5; i >= 0; i--) tdb_mtk[u][k++] = (code >> i) & 1;
+for (i = 5; i >= 0; i--)
+    tdb_mtk[u][k++] = (code >> i) & 1;
 return k;
 }
 

@@ -1,6 +1,6 @@
 /* pdp8_defs.h: PDP-8 simulator definitions
 
-   Copyright (c) 1993-2012, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -23,8 +23,9 @@
    used in advertising or otherwise to promote the sale, use or other dealings
    in this Software without prior written authorization from Robert M Supnik.
 
+   18-Sep-13    RMS     Added set_bootpc prototype
    18-Apr-12    RMS     Removed separate timer for additional terminals;
-                        added clock_cosched prototype
+                        Added clock_cosched prototype
    22-May-10    RMS     Added check for 64b definitions
    21-Aug-07    RMS     Added FPP8 support
    13-Dec-06    RMS     Added TA8E support
@@ -44,8 +45,8 @@
    and Bill Haygood in resolving questions about the PDP-8
 */
 
-#ifndef _PDP8_DEFS_H_
-#define _PDP8_DEFS_H_   0
+#ifndef PDP8_DEFS_H_
+#define PDP8_DEFS_H_   0
 
 #include "sim_defs.h"                                   /* simulator defns */
 
@@ -58,9 +59,10 @@
 #define STOP_RSRV       1                               /* must be 1 */
 #define STOP_HALT       2                               /* HALT */
 #define STOP_IBKPT      3                               /* breakpoint */
-#define STOP_NOTSTD     4                               /* non-std devno */
-#define STOP_DTOFF      5                               /* DECtape off reel */
-#define STOP_LOOP       6                               /* infinite loop */
+#define STOP_OPBKPT     4                               /* Opcode/Instruction breakpoint */
+#define STOP_NOTSTD     5                               /* non-std devno */
+#define STOP_DTOFF      6                               /* DECtape off reel */
+#define STOP_LOOP       7                               /* infinite loop */
 
 /* Memory */
 
@@ -210,6 +212,6 @@ typedef struct {
 t_stat set_dev (UNIT *uptr, int32 val, char *cptr, void *desc);
 t_stat show_dev (FILE *st, UNIT *uptr, int32 val, void *desc);
 
-int32 clk_cosched (int32 wait);
+void cpu_set_bootpc (int32 pc);
 
 #endif

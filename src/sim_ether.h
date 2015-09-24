@@ -63,10 +63,11 @@
   ------------------------------------------------------------------------------
 */
 
-#ifndef _SIM_ETHER_H
-#define _SIM_ETHER_H
+#ifndef SIM_ETHER_H
+#define SIM_ETHER_H
 
 #include "sim_defs.h"
+#include "sim_sock.h"
 
 /* make common BSD code a bit easier to read in this file */
 /* OS/X seems to define and compile using one of these BSD types */
@@ -78,11 +79,11 @@
 #endif
 
 /* cygwin dowsn't have the right features to use the threaded network I/O */
-#if defined(__CYGWIN__)
+#if defined(__CYGWIN__) || defined(__ZAURUS__) // psco added check for Zaurus platform
 #define DONT_USE_READER_THREAD
 #endif
 
-#if (((defined(__sun__) && defined(__i386__)) || defined(__linux)) && !defined(DONT_USE_READER_THREAD))
+#if ((((defined(__sun) || defined(__sun__)) && defined(__i386__)) || defined(__linux)) && !defined(DONT_USE_READER_THREAD))
 #define USE_READER_THREAD 1
 #endif
 
@@ -104,7 +105,7 @@
 #endif /* USE_SETNONBLOCK */
 #undef PCAP_READ_TIMEOUT
 #define PCAP_READ_TIMEOUT 15
-#if (!defined (xBSD) && !defined(_WIN32) && !defined(VMS) && !defined(__CYGWIN__)) || defined (USE_TAP_NETWORK) || defined (USE_VDE_NETWORK)
+#if (!defined (xBSD) && !defined(_WIN32) && !defined(VMS) && !defined(__CYGWIN__)) || defined (HAVE_TAP_NETWORK) || defined (HAVE_VDE_NETWORK)
 #define MUST_DO_SELECT 1
 #endif
 #endif /* USE_READER_THREAD */
@@ -118,13 +119,25 @@
 #undef USE_SHARED
 #endif
 
+/* USE_SHARED implies shared pcap, so force HAVE_PCAP_NETWORK */
+#if defined(USE_SHARED) && !defined(HAVE_PCAP_NETWORK)
+#define HAVE_PCAP_NETWORK 1
+#endif
+
 /*
   USE_BPF is defined to let this code leverage the libpcap/OS kernel provided 
   BPF packet filtering.  This generally will enhance performance.  It may not 
   be available in some environments and/or it may not work correctly, so 
   undefining this will still provide working code here.
 */
+#if defined(HAVE_PCAP_NETWORK)
 #define USE_BPF 1
+#if defined (_WIN32) && !defined (BPF_CONST_STRING)
+#define BPF_CONST_STRING 1
+#endif
+#else
+#define DONT_USE_PCAP_FINDALLDEVS 1
+#endif
 
 #if defined (USE_READER_THREAD)
 #include <pthread.h>
@@ -145,42 +158,57 @@
 #define ETH_FRAME_SIZE (ETH_MAX_PACKET+ETH_CRC_SIZE)    /* ethernet maximum frame size */
 #define ETH_MIN_JUMBO_FRAME ETH_MAX_PACKET              /* Threshold size for Jumbo Frame Processing */
 
-#define LOOPBACK_SELF_FRAME(phy_mac, msg)             \
-    (((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&    \
-     ((msg)[14] == 0x00) && ((msg)[15] == 0x00) &&    \
-     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&    \
-     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&    \
-     (memcmp(phy_mac, (msg),    6) == 0) &&           \
-     (memcmp(phy_mac, (msg)+6,  6) == 0) &&           \
-     (memcmp(phy_mac, (msg)+18, 6) == 0))
+#define LOOPBACK_SELF_FRAME(phy_mac, msg)                                                     \
+    (((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&              /* Ethernet Loopback */       \
+     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&              /* Forward Function */        \
+     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&              /* Next Function - Reply */   \
+     (memcmp(phy_mac, (msg),    6) == 0) &&                     /* Ethernet Destination */    \
+     (memcmp(phy_mac, (msg)+6,  6) == 0) &&                     /* Ethernet Source */         \
+     (memcmp(phy_mac, (msg)+18, 6) == 0))                       /* Forward Address */
 
-#define LOOPBACK_PHYSICAL_RESPONSE(host_phy, phy_mac, msg) \
-    (((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&         \
-     ((msg)[14] == 0x08) && ((msg)[15] == 0x00) &&         \
-     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&         \
-     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&         \
-     (memcmp(host_phy, (msg)+18, 6) == 0) &&               \
-     (memcmp(host_phy, (msg),    6) == 0) &&               \
-     (memcmp(phy_mac,  (msg)+6,  6) == 0))
+#define LOOPBACK_PHYSICAL_RESPONSE(dev, msg)                                                    \
+    ((dev->have_host_nic_phy_addr) &&                                                           \
+     ((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&              /* Ethernet Loopback */         \
+     ((msg)[14] == 0x08) && ((msg)[15] == 0x00) &&              /* Skipcount - 8 */             \
+     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&              /* Last Function - Forward */   \
+     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&              /* Function - Reply */          \
+     (memcmp(dev->host_nic_phy_hw_addr, (msg)+18, 6) == 0) &&   /* Forward Address - Host MAC */\
+     (memcmp(dev->host_nic_phy_hw_addr, (msg),    6) == 0) &&   /* Ethernet Source - Host MAC */\
+     (memcmp(dev->physical_addr,  (msg)+6,  6) == 0))           /* Ethernet Source */
 
-#define LOOPBACK_PHYSICAL_REFLECTION(host_phy, msg)  \
-    (((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&   \
-     ((msg)[14] == 0x00) && ((msg)[15] == 0x00) &&   \
-     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&   \
-     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&   \
-     (memcmp(host_phy, (msg)+6,  6) == 0) &&         \
-     (memcmp(host_phy, (msg)+18, 6) == 0))
+#define LOOPBACK_PHYSICAL_REFLECTION(dev, msg)                                                  \
+    ((dev->have_host_nic_phy_addr) &&                                                           \
+     ((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&              /* Ethernet Loopback */         \
+     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&              /* Forward Function */          \
+     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&              /* Next Function - Reply */     \
+     (memcmp(dev->host_nic_phy_hw_addr, (msg)+6,  6) == 0) &&   /* Ethernet Source - Host MAC */\
+     (memcmp(dev->host_nic_phy_hw_addr, (msg)+18, 6) == 0))     /* Forward Address - Host MAC */
+
+#define LOOPBACK_REFLECTION_TEST_PACKET(dev, msg)                                                \
+    ((dev->have_host_nic_phy_addr) &&                                                            \
+     ((msg)[12] == 0x90) && ((msg)[13] == 0x00) &&             /* Ethernet Loopback */           \
+     ((msg)[14] == 0x00) && ((msg)[15] == 0x00) &&             /* Skipcount - 0 */               \
+     ((msg)[16] == 0x02) && ((msg)[17] == 0x00) &&             /* Forward Function */            \
+     ((msg)[24] == 0x01) && ((msg)[25] == 0x00) &&             /* Next Function - Reply */       \
+     ((msg)[00] == 0xFE) && ((msg)[01] == 0xFF) &&             /* Ethernet Destination - Reflection Test MAC */\
+     ((msg)[02] == 0xFF) && ((msg)[03] == 0xFF) &&                                               \
+     ((msg)[04] == 0xFF) && ((msg)[05] == 0xFE) &&                                               \
+     (memcmp(dev->host_nic_phy_hw_addr, (msg)+6,  6) == 0))    /* Ethernet Source - Host MAC */
 
 struct eth_packet {
   uint8   msg[ETH_FRAME_SIZE];                          /* ethernet frame (message) */
-  int     len;                                          /* packet length without CRC */
-  int     used;                                         /* bytes processed (used in packet chaining) */
+  uint8   *oversize;                                    /* oversized frame (message) */
+  uint32  len;                                          /* packet length without CRC */
+  uint32  used;                                         /* bytes processed (used in packet chaining) */
   int     status;                                       /* transmit/receive status */
-  int     crc_len;                                      /* packet length with CRC */
+  uint32  crc_len;                                      /* packet length with CRC */
 };
 
 struct eth_item {
   int                 type;                             /* receive (0=setup, 1=loopback, 2=normal) */
+#define ETH_ITM_SETUP    0
+#define ETH_ITM_LOOPBACK 1
+#define ETH_ITM_NORMAL   2
   struct eth_packet   packet;
 };
 
@@ -211,11 +239,15 @@ typedef struct eth_item ETH_ITEM;
 struct eth_device {
   char*         name;                                   /* name of ethernet device */
   void*         handle;                                 /* handle of implementation-specific device */
-  int           fd_handle;                              /* fd to kernel device (where needed) */
+  SOCKET        fd_handle;                              /* fd to kernel device (where needed) */
+  char*         bpf_filter;                             /* bpf filter currently in effect */
   int           eth_api;                                /* Designator for which API is being used to move packets */
-#define ETH_API_PCAP 0                                  /* Pcap API in use */
-#define ETH_API_TAP  1                                  /* tun/tap API in use */
-#define ETH_API_VDE  2                                  /* VDE API in use */
+#define ETH_API_NONE 0                                  /* No API in use yet */
+#define ETH_API_PCAP 1                                  /* Pcap API in use */
+#define ETH_API_TAP  2                                  /* tun/tap API in use */
+#define ETH_API_VDE  3                                  /* VDE API in use */
+#define ETH_API_UDP  4                                  /* UDP API in use */
+#define ETH_API_NAT  5                                  /* NAT (SLiRP) API in use */
   ETH_PCALLBACK read_callback;                          /* read callback function */
   ETH_PCALLBACK write_callback;                         /* write callback function */
   ETH_PACK*     read_packet;                            /* read packet */
@@ -234,10 +266,33 @@ struct eth_device {
   uint32        jumbo_fragmented;                       /* Giant IPv4 Frames Fragmented */
   uint32        jumbo_dropped;                          /* Giant Frames Dropped */
   uint32        jumbo_truncated;                        /* Giant Frames too big for capture buffer - Dropped */
+  uint32        packets_sent;                           /* Total Packets Sent */
+  uint32        packets_received;                       /* Total Packets Received */
+  uint32        loopback_packets_processed;             /* Total Loopback Packets Processed */
+  uint32        transmit_packet_errors;                 /* Total Send Packet Errors */
+  uint32        receive_packet_errors;                  /* Total Read Packet Errors */
+  int32         error_waiting_threads;                  /* Count of threads currently waiting after an error */
+  ETH_BOOL      error_needs_reset;                      /* Flag indicating to force reset */
+#define ETH_ERROR_REOPEN_THRESHOLD 10                   /* Attempt ReOpen after 20 send/receive errors */
+#define ETH_ERROR_REOPEN_PAUSE 4                        /* Seconds to pause between closing and reopening LAN */
+  uint32        error_reopen_count;                     /* Count of ReOpen Attempts */
   DEVICE*       dptr;                                   /* device ethernet is attached to */
   uint32        dbit;                                   /* debugging bit */
   int           reflections;                            /* packet reflections on interface */
   int           need_crc;                               /* device needs CRC (Cyclic Redundancy Check) */
+  /* Throttling control parameters: */
+  uint32        throttle_time;                          /* ms burst time window */
+#define ETH_THROT_DEFAULT_TIME 5                        /* 5ms Default burst time window */
+  uint32        throttle_burst;                         /* packets passed with throttle_time which trigger throttling */
+#define ETH_THROT_DEFAULT_BURST 4                       /* 4 Packet burst in time window */
+  uint32        throttle_delay;                         /* ms to delay when throttling.  0 disables throttling */
+#define ETH_THROT_DISABLED_DELAY 0                      /* 0 Delay disables throttling */
+#define ETH_THROT_DEFAULT_DELAY 10                      /* 10ms Delay during burst */
+  /* Throttling state variables: */
+  uint32        throttle_mask;                          /* match test for threshold detection (1 << throttle_burst) - 1 */
+  uint32        throttle_events;                        /* keeps track of packet arrival values */
+  uint32        throttle_packet_time;                   /* time last packet was transmitted */
+  uint32        throttle_count;                         /* Total Throttle Delays */
 #if defined (USE_READER_THREAD)
   int           asynch_io;                              /* Asynchronous Interrupt scheduling enabled */
   int           asynch_io_latency;                      /* instructions to delay pending interrupt */
@@ -265,6 +320,7 @@ typedef struct eth_device  ETH_DEV;
 t_stat eth_open   (ETH_DEV* dev, char* name,            /* open ethernet interface */
                    DEVICE* dptr, uint32 dbit);
 t_stat eth_close  (ETH_DEV* dev);                       /* close ethernet interface */
+t_stat eth_attach_help(FILE *st, DEVICE *dptr, UNIT *uptr, int32 flag, const char *cptr);
 t_stat eth_write  (ETH_DEV* dev, ETH_PACK* packet,      /* write sychronous packet; */
                    ETH_PCALLBACK routine);              /*  callback when done */
 int eth_read      (ETH_DEV* dev, ETH_PACK* packet,      /* read single packet; */
@@ -284,12 +340,15 @@ int eth_devices   (int max, ETH_LIST* dev);             /* get ethernet devices 
 void eth_setcrc   (ETH_DEV* dev, int need_crc);         /* enable/disable CRC mode */
 t_stat eth_set_async (ETH_DEV* dev, int latency);       /* set read behavior to be async */
 t_stat eth_clr_async (ETH_DEV* dev);                    /* set read behavior to be not async */
+t_stat eth_set_throttle (ETH_DEV* dev, uint32 time, uint32 burst, uint32 delay); /* set transmit throttle parameters */
 uint32 eth_crc32(uint32 crc, const void* vbuf, size_t len); /* Compute Ethernet Autodin II CRC for buffer */
 
-void eth_packet_trace (ETH_DEV* dev, const uint8 *msg, int len, char* txt); /* trace ethernet packet header+crc */
-void eth_packet_trace_ex (ETH_DEV* dev, const uint8 *msg, int len, char* txt, int detail, uint32 reason); /* trace ethernet packet */
-t_stat eth_show  (FILE* st, UNIT* uptr,                 /* show ethernet devices */
-                  int32 val, void* desc);
+void eth_packet_trace (ETH_DEV* dev, const uint8 *msg, int len, const char* txt); /* trace ethernet packet header+crc */
+void eth_packet_trace_ex (ETH_DEV* dev, const uint8 *msg, int len, const char* txt, int detail, uint32 reason); /* trace ethernet packet */
+t_stat eth_show (FILE* st, UNIT* uptr,                  /* show ethernet devices */
+                 int32 val, void* desc);
+t_stat eth_show_devices (FILE* st, DEVICE *dptr,        /* show ethernet devices */
+                         UNIT* uptr, int32 val, char* desc);
 void eth_show_dev (FILE*st, ETH_DEV* dev);              /* show ethernet device state */
 
 void eth_mac_fmt      (ETH_MAC* add, char* buffer);     /* format ethernet mac address */
@@ -301,9 +360,10 @@ void ethq_remove (ETH_QUE* que);                        /* remove item from FIFO
 void ethq_insert (ETH_QUE* que, int32 type,             /* insert item into FIFO queue */
                   ETH_PACK* packet, int32 status);
 void ethq_insert_data(ETH_QUE* que, int32 type,         /* insert item into FIFO queue */
-                  const uint8 *data, int used, int len, 
-                  int crc_len, const uint8 *crc_data, int32 status);
+                  const uint8 *data, int used, size_t len, 
+                  size_t crc_len, const uint8 *crc_data, int32 status);
 t_stat ethq_destroy(ETH_QUE* que);                      /* release FIFO queue */
 
+const char *eth_capabilities(void);
 
 #endif                                                  /* _SIM_ETHER_H */

@@ -1,6 +1,6 @@
 /* pdp8_pt.c: PDP-8 paper tape reader/punch simulator
 
-   Copyright (c) 1993-2011, Robert M Supnik
+   Copyright (c) 1993-2013, Robert M Supnik
 
    Permission is hereby granted, free of charge, to any person obtaining a
    copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,7 @@
 
    ptr,ptp      PC8E paper tape reader/punch
 
+   17-Mar-13    RMS     Modified to use central set_bootpc routine
    25-Apr-03    RMS     Revised for extended file support
    04-Oct-02    RMS     Added DIBs
    30-May-02    RMS     Widened POS to 32b
@@ -163,10 +164,10 @@ if ((ptr_unit.flags & UNIT_ATT) == 0)                   /* attached? */
 if ((temp = getc (ptr_unit.fileref)) == EOF) {
     if (feof (ptr_unit.fileref)) {
         if (ptr_stopioe)
-            printf ("PTR end of file\n");
+            sim_printf ("PTR end of file\n");
         else return SCPE_OK;
         }
-    else perror ("PTR I/O error");
+    else sim_perror ("PTR I/O error");
     clearerr (ptr_unit.fileref);
     return SCPE_IOERR;
     }
@@ -216,9 +217,9 @@ switch (IR & 07) {                                      /* decode IR<9:11> */
         sim_activate (&ptp_unit, ptp_unit.wait);        /* activate unit */
         return AC;
 
-	default:
-		return (stop_inst << IOT_V_REASON) + AC;
-		}                                               /* end switch */
+    default:
+        return (stop_inst << IOT_V_REASON) + AC;
+        }                                               /* end switch */
 }
 
 /* Unit service */
@@ -230,7 +231,7 @@ int_req = INT_UPDATE;                                   /* update interrupts */
 if ((ptp_unit.flags & UNIT_ATT) == 0)                   /* attached? */
     return IORETURN (ptp_stopioe, SCPE_UNATT);
 if (putc (ptp_unit.buf, ptp_unit.fileref) == EOF) {
-    perror ("PTP I/O error");
+    sim_perror ("PTP I/O error");
     clearerr (ptp_unit.fileref);
     return SCPE_IOERR;
     }
@@ -278,14 +279,13 @@ static const uint16 boot_rom[] = {
 
 t_stat ptr_boot (int32 unitno, DEVICE *dptr)
 {
-int32 i;
-extern int32 saved_PC;
+size_t i;
 extern uint16 M[];
 
 if (ptr_dib.dev != DEV_PTR)                             /* only std devno */
     return STOP_NOTSTD;
 for (i = 0; i < BOOT_LEN; i++)
     M[BOOT_START + i] = boot_rom[i];
-saved_PC = BOOT_START;
+cpu_set_bootpc (BOOT_START);
 return SCPE_OK;
 }

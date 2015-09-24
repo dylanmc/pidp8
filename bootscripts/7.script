@@ -1,5 +1,1 @@
-reset
-set cpu 32k
-set cpu noidle
-att rk0 ../imagefiles/os8/os8.rk05
-boot rk0
+0.script
