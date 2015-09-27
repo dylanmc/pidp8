@@ -445,7 +445,7 @@ if ((switchstatus[2] & 0x0020)==0) //SING_STEP toggled
 			printf("\r\nShutdown\r\n\r\n");
 			reason = STOP_HALT;
 			awfulHackFlag = 8;	// this triggers an exit command after leaving the simulator run. 
-			if(spawn_cmd ((int32) 0, " sudo shutdown -h -t 1 now")!=SCPE_OK)		// issue simh attach command
+			if(spawn_cmd ((int32) 0, " shutdown -h -t 1 now")!=SCPE_OK)		// issue simh attach command (no sudo in buildroot)
 				printf("\r\n\n\nshutdown failed\r\n\n");
 		}
 
@@ -1182,8 +1182,16 @@ switch ((IR >> 7) & 037) {                              /* decode IR<0:4> */
                 tsc_cdf = 0;                            /* clear flag */
                 }
             else {
-                if (IR & 04)                            /* OSR */
+                if (IR & 04){                           /* OSR */
+//--- PiDP bug fix 20150822----------------------------------------------------------------
+//OSR never got updated when PDP-8 is running
+//separate bug, not fixed yet: OSR should be updated by DEP and LOAD_ADD switch handlers I think
+// OSR should probably be loaded with switchstatus[0] in every cycle. Doing it here is just a temp fix.
+//-----------------------------------------------------------------------------------------
+
+ 		    OSR = switchstatus[0] ^ 07777;
                     LAC = LAC | OSR;
+		}
                 if (IR & 02)                            /* HLT */
 //--- PiDP change--------------------------------------------------------------------------
 //                    reason = STOP_HALT;
